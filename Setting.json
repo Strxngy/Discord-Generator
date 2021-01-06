@@ -1,0 +1,10 @@
+{
+    "Threads": 10,
+    "ProxiesFile" : "Files/Proxies.txt",
+    "CombolistFile" : "Files/Combolist.txt",
+    "InviteCode": "mTFye5HyvM",
+    "TwoCaptchaKey": "",
+    "ShowWarns": true,
+    "ShowLogs": true,
+    "DeveloperMode": true
+}
