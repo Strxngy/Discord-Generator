@@ -1,4 +1,3 @@
-
 <p align="center">
 
 [![GitHub stars](https://img.shields.io/github/stars/Strxngy/Discord-Generator?color=FFFFFF&label=stars&style=flat-square)](https://github.com/Schmenn/DiscordGenerator/stargazers)
@@ -43,12 +42,13 @@ go to [the releases page](https://github.com/Strxngy/Discord-Generator/releases)
 * Email verifier
 * Avatar changer
 * Proxies support
+* Threads
 * Custom UserNames and Avatars
 
 ### Upcoming Features
 * Phone Verification
-* Threads
 * Better error handling 
+* cleaner code
 
 ## Donate
 [![Donate with Bitcoin](https://en.cryptobadges.io/badge/big/19UQjwNnMZ7Qg9tePUCosTSQUns8Mefmr8?showBalance=true)](https://en.cryptobadges.io/donate/19UQjwNnMZ7Qg9tePUCosTSQUns8Mefmr8)
