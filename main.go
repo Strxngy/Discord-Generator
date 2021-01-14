@@ -167,7 +167,6 @@ func main() {
 			defer wg.Done()
 			concurrentGoroutines <- struct{}{}
 			threadid++
-			fmt.Println(threadid)
 			combo := strings.Split(i, ":")
 			if imaphost[strings.Split(combo[0], "@")[1]] == nil {
 				<-concurrentGoroutines
@@ -179,17 +178,17 @@ func main() {
 
 			go func() {
 				nig, ger := checker(combo[0], combo[1], imaphost[strings.Split(combo[0], "@")[1]].(string))
-				c1 <- nig
 				c2 <- ger
+				c1 <- nig
 			}()
 			// Listen on our channel AND a timeout channel - which ever happens first.
 			select {
 			case res := <-c1:
 				if res {
-					wtf := <-c2
+					conn := <-c2
 					fmt.Fprintf(color.Output, "%s%s%s Logged into %s\n", magenta("["), cyan("+"), magenta("]"), combo[0])
-					Modules.Creator(wtf, out, names, combo, invite, config.TwoCaptcha)
-					wtf.Logout()
+					Modules.Creator(conn, out, names, combo, invite, config.TwoCaptcha)
+					conn.Logout()
 				}
 			case <-time.After(*timeout):
 				Modules.Log(imaphost[strings.Split(combo[0], "@")[1]].(string)+" out of time", "Timeout", "bad")
